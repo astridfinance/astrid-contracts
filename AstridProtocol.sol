@@ -21,6 +21,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+    bytes32 public constant REBASER_ROLE = keccak256("REBASER_ROLE");
 
     address private _stakedTokenAddress;
     address private _restakedTokenAddress;
@@ -53,6 +54,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     uint96 public withdrawalsNonce;
 
     event RestakePerformed(address indexed from, uint256 amount, uint256 shares);
+    event RestakeRewardsPerformed(address indexed from, uint256 amount, uint256 shares);
     event WithdrawQueued(address indexed to, uint256 amount, uint256 shares, uint256 nonce, bytes32 withdrawalRoot);
     event WithdrawCompleted(address indexed to, uint256 amount, uint256 shares, uint256 nonce, bytes32 withdrawalRoot);
 
@@ -69,6 +71,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(PAUSER_ROLE, msg.sender);
         _grantRole(UPGRADER_ROLE, msg.sender);
+        _grantRole(REBASER_ROLE, msg.sender);
 
         _stakedTokenAddress = _stakedTokenAddr;
         _restakedTokenAddress = _restakedTokenAddr;
@@ -99,6 +102,18 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         return withdrawals[withdrawer].length;
     }
 
+    function pendingWithdrawalsAmount(address withdrawer) public view returns (uint256) {
+        uint256 pendingAmount = 0;
+
+        for (uint256 i = 0; i < withdrawals[withdrawer].length; i++) {
+            if (withdrawals[withdrawer][i].pending) {
+                pendingAmount += withdrawals[withdrawer][i].amount;
+            }
+        }
+
+        return pendingAmount;
+    }
+
     function restake(uint256 amount) public whenNotPaused returns (uint256) {
         require(IERC20(_stakedTokenAddress).balanceOf(msg.sender) >= amount, "AstridProtocol: Insufficient balance of staked token");
         require(IERC20(_stakedTokenAddress).allowance(msg.sender, address(this)) >= amount, "AstridProtocol: Insufficient allowance of staked token");
@@ -124,6 +139,24 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
 
         // emit staked performed event
         emit RestakePerformed(msg.sender, amount, shares);
+
+        return shares;
+    }
+
+    function restakeRewards(uint256 amount) public whenNotPaused onlyRole(REBASER_ROLE) returns (uint256) {
+        require(IERC20(_stakedTokenAddress).balanceOf(msg.sender) >= amount, "AstridProtocol: Insufficient balance of staked token");
+        require(IERC20(_stakedTokenAddress).allowance(msg.sender, address(this)) >= amount, "AstridProtocol: Insufficient allowance of staked token");
+
+        // receive staked token from user
+        bool amountSent = _payMe(msg.sender, amount, _stakedTokenAddress);
+        require(amountSent, "AstridProtocol: Failed to send staked token");
+
+        // send staked token to EigenLayer on behalf of current contract
+        IERC20(_stakedTokenAddress).approve(_eigenLayerStrategyManagerAddress, amount);
+        uint256 shares = IStrategyManager(_eigenLayerStrategyManagerAddress).depositIntoStrategy(IStrategy(_eigenLayerStrategyStEthAddress), IERC20(_stakedTokenAddress), amount);
+
+        // emit rewards staked performed event
+        emit RestakeRewardsPerformed(msg.sender, amount, shares);
 
         return shares;
     }
@@ -167,6 +200,8 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
 
         withdrawalsNonce = withdrawalsNonce + 1;
 
+        IRestakedETH(_restakedTokenAddress).burn(msg.sender, withdrawalInfo.amount);
+
         return withdrawalsNonce - 1;
     }
 
@@ -187,9 +222,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         WithdrawalInfo memory withdrawalInfo = withdrawalsByNonce[msg.sender][withdrawalNonce];
 
         require(withdrawalInfo.withdrawCompletedAt == 0, "AstridProtocol: Withdrawal already completed");
-
-        require(IERC20(_restakedTokenAddress).balanceOf(msg.sender) >= withdrawalInfo.amount, "AstridProtocol: Insufficient balance of restaked token");
-        require(IERC20(_restakedTokenAddress).allowance(msg.sender, address(this)) >= withdrawalInfo.amount, "AstridProtocol: Insufficient allowance of restaked token");
+        require(withdrawalInfo.withdrawer == msg.sender, "AstridProtocol: Invalid withdrawer");
 
         uint256[] memory strategyIndexesArr = new uint256[](1);
         strategyIndexesArr[0] = 1;
@@ -238,8 +271,6 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
 
         bool sent = _payDirect(msg.sender, balanceAfter.sub(balanceBefore), _stakedTokenAddress);
         require(sent, "AstridProtocol: Failed to send staked token");
-
-        IRestakedETH(_restakedTokenAddress).burn(msg.sender, withdrawalInfo.amount);
 
         emit WithdrawCompleted(msg.sender, withdrawalInfo.amount, withdrawalInfo.shares, withdrawalInfo.nonce, withdrawalInfo.withdrawalRoot);
     }
