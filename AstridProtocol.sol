@@ -48,6 +48,13 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         bytes32 withdrawalRoot;
     }
 
+    struct ReBaseInfo {
+        uint256 restakedTokenTotalSupply;
+        uint256 eigenLayerUnderlyingValue;
+        uint32 currentBlock;
+        uint256 currentTimestamp;
+    }
+
     mapping(address => ReStakeInfo[]) public restakes;
     mapping(address => WithdrawalInfo[]) public withdrawals;
     mapping(address => mapping(uint96 => WithdrawalInfo)) public withdrawalsByNonce;
@@ -112,6 +119,22 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         }
 
         return pendingAmount;
+    }
+
+    /**
+     * Only used for rebaseable staked tokens like stETH, whereas rETH and cbETH are non-rebaseable staked tokens.
+     * When stETH is rebased (daily), the underlying value in StrategyStEth for this contract will also increase/decrease.
+     * Hence we use this function to get the difference and call the `rebase` function on restaked stETH token.
+     */
+    function rebaseInfo() public view returns (ReBaseInfo memory) {
+        ReBaseInfo memory info = ReBaseInfo({
+            restakedTokenTotalSupply: IRestakedETH(_restakedTokenAddress).totalSupply(),
+            eigenLayerUnderlyingValue: IStrategy(_eigenLayerStrategyStEthAddress).userUnderlyingView(address(this)),
+            currentBlock: uint32(block.number),
+            currentTimestamp: block.timestamp
+        });
+
+        return info;
     }
 
     function restake(uint256 amount) public whenNotPaused returns (uint256) {

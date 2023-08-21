@@ -7,4 +7,6 @@ interface IRestakedETH {
 
     function burn(address from, uint256 amount) external;
 
+    function totalSupply() external view returns (uint256);
+
 }
