@@ -6,10 +6,9 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/IRestakedETH.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-contract RestakedETH is IRestakedETH, Initializable, IERC20, PausableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
+contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
 
     using SafeMath for uint256;
 
@@ -57,7 +56,7 @@ contract RestakedETH is IRestakedETH, Initializable, IERC20, PausableUpgradeable
     // EIP-2612: keeps track of number of permits per address
     mapping(address => uint256) private _nonces;
 
-    // address of stETH
+    // address of staked ETH
     address public stakedTokenAddress;
 
     mapping(uint256 => bool) public rebaseByDate;
@@ -67,13 +66,13 @@ contract RestakedETH is IRestakedETH, Initializable, IERC20, PausableUpgradeable
         _disableInitializers();
     }
 
-    function initialize(address _stakedTokenAddress) initializer public {
+    function initialize(address _stakedTokenAddress, string memory _stakedTokenSymbol) initializer public {
         __Pausable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
 
-        _name = "Astrid Restaked ETH";
-        _symbol = "reETH";
+        _name = string.concat("Astrid Restaked ", _stakedTokenSymbol);
+        _symbol = string.concat("r", _stakedTokenSymbol);
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(PAUSER_ROLE, msg.sender);
