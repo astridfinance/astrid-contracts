@@ -25,4 +25,9 @@ library Utils {
         IERC20(token).safeTransfer(to, amount);
         return true;
     }
+
+    function safeTransferETH(address to, uint256 value) internal {
+        (bool success, ) = to.call{value: value}(new bytes(0));
+        require(success, "AstridProtocol: Failed to send ETH");
+    }
 }
