@@ -116,8 +116,16 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         uint256 shares = IStrategy(_eigenLayerStrategyAddress).shares(address(this));
         uint256 amount = IStrategy(_eigenLayerStrategyAddress).userUnderlyingView(address(this));
 
+        uint256 strategyIndex;
+        IStrategy[] memory strategyList = IStrategyManager(_eigenLayerStrategyManagerAddress).stakerStrategyList(address(this));
+        for (uint256 i; i < strategyList.length; i++) {
+            if (address(strategyList[i]) == _eigenLayerStrategyAddress) {
+                strategyIndex = i;
+            }
+        }
+
         uint256[] memory strategyIndexesArr = new uint256[](1);
-        strategyIndexesArr[0] = 1;
+        strategyIndexesArr[0] = strategyIndex;
         IStrategy[] memory strategiesArr = new IStrategy[](1);
         strategiesArr[0] = IStrategy(_eigenLayerStrategyAddress);
         uint256[] memory sharesArr = new uint256[](1);
@@ -176,8 +184,6 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
 
         require(withdrawalInfo.withdrawCompletedAt == 0, "AstridProtocol: Withdrawal already completed");
 
-        uint256[] memory strategyIndexesArr = new uint256[](1);
-        strategyIndexesArr[0] = 1;
         IStrategy[] memory strategiesArr = new IStrategy[](1);
         strategiesArr[0] = IStrategy(_eigenLayerStrategyAddress);
         uint256[] memory sharesArr = new uint256[](1);
@@ -239,7 +245,7 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
 
         for (uint256 i = 0; i < strategiesLength; ) {
             assets[i] = address(IStrategy(strategies[i]).underlyingToken());
-            assetBalances[i] = IStrategy(strategies[i]).userUnderlyingView(address(this));
+            assetBalances[i] = _getAssetBalance(assets[i], address(strategies[i]));
             unchecked {
                 ++i;
             }
@@ -248,9 +254,38 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
     }
 
     function getAssetBalance(
+        address _token,
         address _eigenLayerStrategyAddress
     ) external view returns (uint256) {
-        return IStrategy(_eigenLayerStrategyAddress).userUnderlyingView(address(this));
+        return _getAssetBalance(_token, _eigenLayerStrategyAddress);
+    }
+
+    function _getAssetBalance(
+        address _token,
+        address _eigenLayerStrategyAddress
+    ) internal view returns (uint256) {
+        uint256 balance;
+
+        balance += IERC20(_token).balanceOf(address(this));
+        balance += IStrategy(_eigenLayerStrategyAddress).userUnderlyingView(address(this));
+
+        for (uint256 i = 0; i < withdrawals.length; ) {
+            WithdrawalInfo memory withdrawalInfo = withdrawals[i];
+            if (withdrawalInfo.pending) {
+                balance += IStrategy(_eigenLayerStrategyAddress).sharesToUnderlyingView(withdrawalInfo.shares);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        return balance;
+    }
+
+    function getStakedTokenAddressAtWithdrawalsIndex(
+        uint256 _index
+    ) external view returns (address) {
+        return withdrawals[_index].stakedTokenAddress;
     }
 
 }

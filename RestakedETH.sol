@@ -255,6 +255,13 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
         return _gonBalances[who];
     }
 
+    function scaledBalanceToBalance(uint256 scaledBalance) external view returns (uint256) {
+        if (_gonsPerFragment == 0) {
+            return 0;
+        }
+        return scaledBalance.div(_gonsPerFragment);
+    }
+
     /**
      * @return The number of successful permits by the specified address.
      */

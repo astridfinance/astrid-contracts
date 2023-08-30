@@ -3,6 +3,10 @@ pragma solidity ^0.8.9;
 
 interface IDelegator {
 
+    function getStakedTokenAddressAtWithdrawalsIndex(
+        uint256 _index
+    ) external returns (address);
+
     function restake(
         address _stakedTokenAddress,
         address _eigenLayerStrategyManagerAddress,
@@ -37,6 +41,7 @@ interface IDelegator {
     ) external view returns (address[] memory, uint256[] memory);
 
     function getAssetBalance(
+        address _token,
         address _eigenLayerStrategyAddress
     ) external view returns (uint256);
 

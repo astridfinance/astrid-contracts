@@ -112,6 +112,8 @@ interface IStrategyManager {
     /// @notice Simple getter function that returns `stakerStrategyList[staker].length`.
     function stakerStrategyListLength(address staker) external view returns (uint256);
 
+    function stakerStrategyList(address staker) external view returns (IStrategy[] memory);
+
     /**
      * @notice Called by a staker to queue a withdrawal of the given amount of `shares` from each of the respective given `strategies`.
      * @dev Stakers will complete their withdrawal by calling the 'completeQueuedWithdrawal' function.
