@@ -34,8 +34,6 @@ interface IDelegator {
 
     function pull(address token) external returns (uint256 balance);
 
-    function pullETH() external payable returns (uint256 balance);
-
     function getAssetBalances(
         address _eigenLayerStrategyManagerAddress
     ) external view returns (address[] memory, uint256[] memory);

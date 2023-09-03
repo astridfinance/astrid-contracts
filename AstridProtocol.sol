@@ -463,13 +463,6 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         emit DelegatorPulled(address(delegators[_delegatorIndex]), _token, balance);
     }
 
-    function pullETHDelegator(
-        uint16 _delegatorIndex
-    ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 balance) {
-        balance = delegators[_delegatorIndex].pullETH();
-        emit DelegatorETHPulled(address(delegators[_delegatorIndex]), balance);
-    }
-
     function rebaseInfoV2(address _stakedTokenAddress) public view returns (ReBaseInfoV2 memory) {
         StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
 

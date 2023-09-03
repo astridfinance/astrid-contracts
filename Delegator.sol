@@ -42,7 +42,7 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
 
     event AstridProtocolAddressSet(address oldAddress, address newAddress);
     event RestakePerformed(address stakedTokenAddress, uint256 amount, uint256 shares);
-    event WithdrawQueued(address stakedTokenAddress, uint256 amount, uint256 shares, uint256 nonce, bytes32 withdrawalRoot);
+    event WithdrawQueued(address stakedTokenAddress, uint256 amount, uint256 shares, uint256 nonce, bytes32 withdrawalRoot, uint256 stakerStrategyListIndex);
     event WithdrawCompleted(uint96 withdrawalIndex);
     event Pull(address indexed to, address token, uint256 value);
     event PullETH(address indexed to, uint256 value);
@@ -117,10 +117,11 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         uint256 amount = IStrategy(_eigenLayerStrategyAddress).userUnderlyingView(address(this));
 
         uint256 strategyIndex;
-        IStrategy[] memory strategyList = IStrategyManager(_eigenLayerStrategyManagerAddress).stakerStrategyList(address(this));
-        for (uint256 i; i < strategyList.length; i++) {
-            if (address(strategyList[i]) == _eigenLayerStrategyAddress) {
+        uint256 strategyListLength = IStrategyManager(_eigenLayerStrategyManagerAddress).stakerStrategyListLength(address(this));
+        for (uint256 i; i < strategyListLength; i++) {
+            if (IStrategyManager(_eigenLayerStrategyManagerAddress).stakerStrategyList(address(this), i) == _eigenLayerStrategyAddress) {
                 strategyIndex = i;
+                break;
             }
         }
 
@@ -152,7 +153,7 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         });
         withdrawals.push(withdrawalInfo);
 
-        emit WithdrawQueued(_stakedTokenAddress, amount, shares, withdrawalsNonce, withdrawalRoot);
+        emit WithdrawQueued(_stakedTokenAddress, amount, shares, withdrawalsNonce, withdrawalRoot, strategyIndex);
 
         withdrawalsNonce += 1;
 
@@ -226,12 +227,6 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         emit Pull(msg.sender, token, balance);
     }
 
-    function pullETH() public payable nonReentrant whenNotPaused onlyRole(ASTRID_ROLE) returns (uint256 balance) {
-        balance = address(this).balance;
-        Utils.safeTransferETH(msg.sender, balance);
-        emit PullETH(msg.sender, balance);
-    }
-
     function getAssetBalances(
         address _eigenLayerStrategyManagerAddress
     ) external view returns (address[] memory, uint256[] memory) {
@@ -271,7 +266,7 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
 
         for (uint256 i = 0; i < withdrawals.length; ) {
             WithdrawalInfo memory withdrawalInfo = withdrawals[i];
-            if (withdrawalInfo.pending) {
+            if (withdrawalInfo.stakedTokenAddress == _token && withdrawalInfo.pending) {
                 balance += IStrategy(_eigenLayerStrategyAddress).sharesToUnderlyingView(withdrawalInfo.shares);
             }
             unchecked {
