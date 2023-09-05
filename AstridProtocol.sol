@@ -419,62 +419,18 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         return restakes[staker].length + deposits[staker].length;
     }
 
-    // For migration from V1 to V2, queue withdrawal from EigenLayer for this contract as we're now using Delegator contracts in V2
-    function onlyForMigrationQueueWithdrawal(
-        address _stakedTokenAddress
-    ) public nonReentrant whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
-        StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
-        uint256 shares = IStrategy(stakedTokenMapping.eigenLayerStrategyAddress).shares(address(this));
-        uint256 amount = IStrategy(stakedTokenMapping.eigenLayerStrategyAddress).userUnderlyingView(address(this));
-
-        uint256 strategyIndex;
-        uint256 strategyListLength = IStrategyManager(eigenLayerStrategyManagerAddress).stakerStrategyListLength(address(this));
-        for (uint256 i; i < strategyListLength; i++) {
-            if (IStrategyManager(eigenLayerStrategyManagerAddress).stakerStrategyList(address(this), i) == stakedTokenMapping.eigenLayerStrategyAddress) {
-                strategyIndex = i;
-                break;
-            }
-        }
-
-        uint256[] memory strategyIndexesArr = new uint256[](1);
-        strategyIndexesArr[0] = strategyIndex;
-        IStrategy[] memory strategiesArr = new IStrategy[](1);
-        strategiesArr[0] = IStrategy(stakedTokenMapping.eigenLayerStrategyAddress);
-        uint256[] memory sharesArr = new uint256[](1);
-        sharesArr[0] = shares;
-
-        bytes32 withdrawalRoot = IStrategyManager(eigenLayerStrategyManagerAddress).queueWithdrawal(
-            strategyIndexesArr,
-            strategiesArr,
-            sharesArr,
-            address(this),
-            false
-        );
-
-        WithdrawalInfo memory withdrawalInfo = WithdrawalInfo({
-            withdrawer: address(this),
-            restakedTokenAddress: stakedTokenMapping.restakedTokenAddress,
-            amount: amount,
-            shares: shares,
-            pending: true,
-            withdrawalStartBlock: uint32(block.number),
-            withdrawInitiatedAt: block.timestamp,
-            withdrawCompletedAt: 0,
-            nonce: withdrawalsNonce,
-            withdrawalRoot: withdrawalRoot
-        });
-        withdrawals[address(this)].push(withdrawalInfo);
-
-        withdrawalsNonce += 1;
+    function withdrawalsLength(address withdrawer) public view returns (uint256) {
+        return withdrawals[withdrawer].length;
     }
 
-    function onlyForMigrationCompleteQueuedWithdrawal(
-        uint96 _withdrawalIndex,
-        uint256 _middlewareTimesIndex
-    ) public nonReentrant whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
-        WithdrawalInfo memory withdrawalInfo = withdrawals[address(this)][_withdrawalIndex];
+    event WithdrawCompleted(address indexed to, uint96 withdrawalIndex);
+
+    // Supports completion of old withdrawals
+    function completeQueuedWithdrawal(uint96 withdrawalIndex, uint256 middlewareTimesIndex) public nonReentrant whenNotPaused {
+        WithdrawalInfo memory withdrawalInfo = withdrawals[msg.sender][withdrawalIndex];
 
         require(withdrawalInfo.withdrawCompletedAt == 0, "AstridProtocol: Withdrawal already completed");
+        require(withdrawalInfo.withdrawer == msg.sender, "AstridProtocol: Invalid withdrawer");
 
         address _stakedTokenAddress = IRestakedETH(withdrawalInfo.restakedTokenAddress).stakedTokenAddress();
 
@@ -500,68 +456,22 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         IERC20[] memory tokens = new IERC20[](1);
         tokens[0] = IERC20(_stakedTokenAddress);
 
+        uint256 balanceBefore = IERC20(_stakedTokenAddress).balanceOf(address(this));
         IStrategyManager(eigenLayerStrategyManagerAddress).completeQueuedWithdrawal(
             queuedWithdrawal,
             tokens,
-            _middlewareTimesIndex,
+            middlewareTimesIndex,
             true
         );
+        uint256 balanceAfter = IERC20(_stakedTokenAddress).balanceOf(address(this));
 
-        withdrawals[address(this)][_withdrawalIndex].pending = false;
-        withdrawals[address(this)][_withdrawalIndex].withdrawCompletedAt = block.timestamp;
-    }
+        withdrawals[msg.sender][withdrawalIndex].pending = false;
+        withdrawals[msg.sender][withdrawalIndex].withdrawCompletedAt = block.timestamp;
 
-    // For migration from V1 to V2, complete existing queued withdrawals for users
-    function onlyForMigrationCompleteQueuedWithdrawalsForUsers(
-        address[] memory _withdrawerArr,
-        uint96[] memory _withdrawalIndexArr,
-        uint256[] memory _middlewareTimesIndexArr
-    ) public nonReentrant whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
-        for (uint256 i; i < _withdrawerArr.length; i++) {
-            address withdrawer = _withdrawerArr[i];
-            WithdrawalInfo memory withdrawalInfo = withdrawals[withdrawer][_withdrawalIndexArr[i]];
+        bool sent = Utils.payDirect(msg.sender, balanceAfter.sub(balanceBefore), _stakedTokenAddress);
+        require(sent, "AstridProtocol: Failed to send staked token");
 
-            require(withdrawalInfo.withdrawCompletedAt == 0, "AstridProtocol: Withdrawal already completed");
-
-            address _stakedTokenAddress = IRestakedETH(withdrawalInfo.restakedTokenAddress).stakedTokenAddress();
-
-            IStrategy[] memory strategiesArr = new IStrategy[](1);
-            strategiesArr[0] = IStrategy(stakedTokens[_stakedTokenAddress].eigenLayerStrategyAddress);
-            uint256[] memory sharesArr = new uint256[](1);
-            sharesArr[0] = withdrawalInfo.shares;
-
-            address operator = IDelegationManager(IStrategyManager(eigenLayerStrategyManagerAddress).delegation()).delegatedTo(address(this));
-
-            IStrategyManager.QueuedWithdrawal memory queuedWithdrawal = IStrategyManager.QueuedWithdrawal({
-                strategies: strategiesArr,
-                shares: sharesArr,
-                depositor: address(this),
-                withdrawerAndNonce: IStrategyManager.WithdrawerAndNonce({
-                    withdrawer: address(this),
-                    nonce: uint96(withdrawalInfo.nonce)
-                }),
-                withdrawalStartBlock: withdrawalInfo.withdrawalStartBlock,
-                delegatedAddress: operator
-            });
-
-            IERC20[] memory tokens = new IERC20[](1);
-            tokens[0] = IERC20(_stakedTokenAddress);
-
-            uint256 balanceBefore = IERC20(_stakedTokenAddress).balanceOf(address(this));
-            IStrategyManager(eigenLayerStrategyManagerAddress).completeQueuedWithdrawal(
-                queuedWithdrawal,
-                tokens,
-                _middlewareTimesIndexArr[i],
-                true
-            );
-            uint256 balanceAfter = IERC20(_stakedTokenAddress).balanceOf(address(this));
-
-            withdrawals[withdrawer][_withdrawalIndexArr[i]].pending = false;
-            withdrawals[withdrawer][_withdrawalIndexArr[i]].withdrawCompletedAt = block.timestamp;
-
-            bool sent = Utils.payDirect(withdrawer, balanceAfter.sub(balanceBefore), _stakedTokenAddress);
-            require(sent, "AstridProtocol: Failed to send staked token");
-        }
+        emit WithdrawCompleted(msg.sender, withdrawalIndex);
     }
     /* END TO BE DEPRECATED */
 
