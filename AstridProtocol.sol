@@ -95,12 +95,14 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     mapping(address => DepositInfo[]) public deposits;
     mapping(address => uint256) public totalWithdrawalRequests; // restakedTokenAddress => shares
     WithdrawalRequest[] public withdrawalRequests;
-    uint256 withdrawalProcessingCurrentIndex;
+    uint256 public withdrawalProcessingCurrentIndex;
     mapping(address => WithdrawalRequest[]) public withdrawalRequestsByUser;
     mapping(address => uint256) public totalClaimableWithdrawals; // stakedTokenAddress => amount
+    bool public processWithdrawalsOnWithdraw;
 
     event EigenLayerStrategyManagerAddressSet(address oldAddress, address newAddress);
     event StakedTokenMappingSet(address stakedTokenAddress, bool whitelisted, address restakedTokenAddress, address eigenLayerStrategyAddress);
+    event ProcessWithdrawalsOnWithdrawSet(bool value);
     event DelegatorAdded(address indexed delegator);
     event DelegatorRestaked(address indexed delegator, address stakedTokenAddress, uint256 amount, uint256 shares);
     event DelegatorWithdrawalQueued(address indexed delegator, address stakedTokenAddress, uint96 nonce);
@@ -151,6 +153,13 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         });
 
         emit StakedTokenMappingSet(_stakedTokenAddr, _whitelisted, _restakedTokenAddr, _eigenLayerStrategyAddr);
+    }
+
+    function setProcessWithdrawalsOnWithdraw(
+        bool _value
+    ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        processWithdrawalsOnWithdraw = _value;
+        emit ProcessWithdrawalsOnWithdrawSet(_value);
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
@@ -271,6 +280,10 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         return deposits[staker].length;
     }
 
+    function withdrawalRequestsLength() public view returns (uint256) {
+        return withdrawalRequests.length;
+    }
+
     function withdrawalRequestsByUserLength(address withdrawer) public view returns (uint256) {
         return withdrawalRequestsByUser[withdrawer].length;
     }
@@ -338,33 +351,31 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         withdrawalRequestsByUser[msg.sender].push(request);
 
         emit WithdrawalRequested(msg.sender, _restakedTokenAddress, amount, shares);
+
+        if (processWithdrawalsOnWithdraw) {
+            _processWithdrawals();
+        }
     }
 
-    function processWithdrawals(
-        address _stakedTokenAddress,
-        uint256 _amount
-    ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 amountProcessed) {
-        require(
-            IERC20(_stakedTokenAddress).balanceOf(address(this)) >=
-            totalClaimableWithdrawals[_stakedTokenAddress] + _amount,
-            "AstridProtocol: Insufficient staked token available balance"
-        );
+    function processWithdrawals() public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        _processWithdrawals();
+    }
 
-        address _restakedTokenAddress = stakedTokens[_stakedTokenAddress].restakedTokenAddress;
-
-        uint256 withdrawalRequestsLength = withdrawalRequests.length;
-        uint256 remainingAmount = _amount;
-        while(withdrawalProcessingCurrentIndex < withdrawalRequestsLength) {
+    function _processWithdrawals() internal whenNotPaused {
+        uint256 _withdrawalRequestsLength = withdrawalRequests.length;
+        while(withdrawalProcessingCurrentIndex < _withdrawalRequestsLength) {
             WithdrawalRequest memory request = withdrawalRequests[withdrawalProcessingCurrentIndex];
             require(request.status == WithdrawalStatus.REQUESTED, "AstridProtocol: Withdrawal status mismatch");
+
+            address _restakedTokenAddress = request.restakedTokenAddress;
+            address _stakedTokenAddress = IRestakedETH(_restakedTokenAddress).stakedTokenAddress();
             uint256 requestedAmount = IRestakedETH(_restakedTokenAddress).scaledBalanceToBalance(request.requestedRestakedTokenShares);
-            if (requestedAmount > remainingAmount) {
+            if (requestedAmount > IERC20(_stakedTokenAddress).balanceOf(address(this)) - totalClaimableWithdrawals[_stakedTokenAddress]) {
                 break;
             }
 
             totalWithdrawalRequests[_restakedTokenAddress] -= request.requestedRestakedTokenShares;
             IRestakedETH(_restakedTokenAddress).burn(address(this), requestedAmount);
-            remainingAmount -= requestedAmount;
             totalClaimableWithdrawals[_stakedTokenAddress] += requestedAmount;
 
             withdrawalRequests[withdrawalProcessingCurrentIndex].claimableStakedTokenAmount = requestedAmount;
@@ -380,8 +391,6 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
 
             withdrawalProcessingCurrentIndex += 1;
         }
-
-        return _amount - remainingAmount;
     }
 
     function claim(uint256 withdrawerIndex) public nonReentrant whenNotPaused {
