@@ -357,7 +357,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         }
     }
 
-    function processWithdrawals() public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+    function processWithdrawals() public whenNotPaused {
         _processWithdrawals();
     }
 
