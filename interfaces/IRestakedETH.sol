@@ -15,4 +15,6 @@ interface IRestakedETH is IERC20 {
 
     function burn(address from, uint256 amount) external;
 
+    function rebase(uint256 epoch, bool isRebasePositive, uint256 supplyDelta) external returns (uint256);
+
 }

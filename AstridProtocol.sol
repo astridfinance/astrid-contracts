@@ -113,6 +113,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     event WithdrawalRequested(address indexed to, address restakedTokenAddress, uint256 amount, uint256 shares);
     event WithdrawalProcessed(uint256 withdrawalRequestsIndex);
     event WithdrawalClaimed(address indexed to, uint256 withdrawalRequestsIndex);
+    event RebasePerformed(address indexed restakedTokenAddress, uint256 currentTimestamp, uint256 totalSupply, bool isRebasePositive, uint256 supplyDelta);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -274,6 +275,26 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         });
 
         return info;
+    }
+
+    function rebase(address _stakedTokenAddress) public whenNotPaused onlyRole(REBASER_ROLE) returns (uint256 _totalSupply) {
+        ReBaseInfo memory info = rebaseInfo(_stakedTokenAddress);
+        require(info.restakedTokenTotalSupply != info.stakedTokenBackedSupply, "AstridProtocol: restakedTokenTotalSupply = stakedTokenBackedSupply");
+
+        address _restakedTokenAddress = stakedTokens[_stakedTokenAddress].restakedTokenAddress;
+        uint256 _supplyDelta;
+        bool _isRebasePositive;
+
+        if (info.restakedTokenTotalSupply < info.stakedTokenBackedSupply) {
+            _supplyDelta = info.stakedTokenBackedSupply - info.restakedTokenTotalSupply;
+            _isRebasePositive = true;
+        } else {
+            _supplyDelta = info.restakedTokenTotalSupply - info.stakedTokenBackedSupply;
+            _isRebasePositive = false;
+        }
+
+        _totalSupply = IRestakedETH(_restakedTokenAddress).rebase(info.currentTimestamp, _isRebasePositive, _supplyDelta);
+        emit RebasePerformed(_restakedTokenAddress, info.currentTimestamp, _totalSupply, _isRebasePositive, _supplyDelta);
     }
 
     function depositsLength(address staker) public view returns (uint256) {

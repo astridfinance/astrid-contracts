@@ -76,9 +76,7 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(MINTER_ROLE, msg.sender);
         _grantRole(UPGRADER_ROLE, msg.sender);
-        _grantRole(REBASER_ROLE, msg.sender);
 
         stakedTokenAddress = _stakedTokenAddress;
 
