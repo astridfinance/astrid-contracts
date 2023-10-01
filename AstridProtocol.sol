@@ -378,7 +378,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         }
     }
 
-    function processWithdrawals() public whenNotPaused {
+    function processWithdrawals() public nonReentrant whenNotPaused {
         _processWithdrawals();
     }
 
