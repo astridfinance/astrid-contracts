@@ -66,7 +66,7 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
         _disableInitializers();
     }
 
-    function initialize(address _stakedTokenAddress, string memory _stakedTokenSymbol) initializer public {
+    function initialize(address _governanceAddress, address _stakedTokenAddress, string memory _stakedTokenSymbol) initializer public {
         __Pausable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -74,9 +74,9 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
         _name = string.concat("Astrid Restaked ", _stakedTokenSymbol);
         _symbol = string.concat("r", _stakedTokenSymbol);
 
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, _governanceAddress);
+        _grantRole(PAUSER_ROLE, _governanceAddress);
+        _grantRole(UPGRADER_ROLE, _governanceAddress);
 
         stakedTokenAddress = _stakedTokenAddress;
 

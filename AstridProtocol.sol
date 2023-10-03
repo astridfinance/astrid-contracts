@@ -120,15 +120,15 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         _disableInitializers();
     }
 
-    function initialize(address _eigenLayerStrategyManagerAddr) initializer public {
+    function initialize(address _governanceAddr, address _eigenLayerStrategyManagerAddr) initializer public {
         __Pausable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
 
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
-        _grantRole(REBASER_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, _governanceAddr);
+        _grantRole(PAUSER_ROLE, _governanceAddr);
+        _grantRole(UPGRADER_ROLE, _governanceAddr);
+        _grantRole(REBASER_ROLE, _governanceAddr);
 
         eigenLayerStrategyManagerAddress = _eigenLayerStrategyManagerAddr;
     }

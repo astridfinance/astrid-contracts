@@ -52,14 +52,14 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         _disableInitializers();
     }
 
-    function initialize(address _astridProtocolAddr) initializer public {
+    function initialize(address _governanceAddr, address _astridProtocolAddr) initializer public {
         __Pausable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
 
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, _governanceAddr);
+        _grantRole(PAUSER_ROLE, _governanceAddr);
+        _grantRole(UPGRADER_ROLE, _governanceAddr);
 
         astridProtocolAddress = _astridProtocolAddr;
         _grantRole(ASTRID_ROLE, astridProtocolAddress);
