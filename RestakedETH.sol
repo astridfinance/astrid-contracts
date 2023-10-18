@@ -82,37 +82,27 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
 
         _totalSupply = 0;
         _totalGons = 0;
-        _gonsPerFragment = 0;
+        _gonsPerFragment = 10**50;
     }
 
     function mint(address to, uint256 amount) external override onlyRole(MINTER_ROLE) whenNotPaused validRecipient(to) {
         require(amount > 0, "Amount must be greater than 0");
 
-        if (_totalGons == 0) {
-            _totalSupply = amount;
-            _totalGons = amount.mul(10**50);
+        uint256 gonValue = amount.mul(_gonsPerFragment);
 
-            _gonsPerFragment = _totalGons.div(_totalSupply);
+        _totalSupply = _totalSupply.add(amount);
+        _totalGons = _totalGons.add(gonValue);
 
-            uint256 gonValue = amount.mul(_gonsPerFragment);
-            _gonBalances[to] = _gonBalances[to].add(gonValue);
-            emit Transfer(address(0), to, amount);
-        } else {
-            uint256 gonValue = amount.mul(_gonsPerFragment);
-
-            _totalSupply = _totalSupply.add(amount);
-            _totalGons = _totalGons.add(gonValue);
-
-            _gonBalances[to] = _gonBalances[to].add(gonValue);
-            emit Transfer(address(0), to, amount);
-        }
+        _gonBalances[to] = _gonBalances[to].add(gonValue);
+        emit Transfer(address(0), to, amount);
     }
 
     function burn(address from, uint256 amount) external override onlyRole(MINTER_ROLE) whenNotPaused validRecipient(from) {
         require(amount > 0, "Amount must be greater than 0");
-        require(_gonBalances[from] >= amount, "Amount must be owned by from address");
 
         uint256 gonValue = amount.mul(_gonsPerFragment);
+        require(_gonBalances[from] >= gonValue, "Insufficient balance");
+
         _gonBalances[from] = _gonBalances[from].sub(gonValue);
         emit Transfer(from, address(0), amount);
 
@@ -297,6 +287,7 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
      */
     function transfer(address to, uint256 value) external override whenNotPaused validRecipient(to) returns (bool) {
         uint256 gonValue = value.mul(_gonsPerFragment);
+        require(_gonBalances[msg.sender] >= gonValue, "Insufficient balance");
 
         _gonBalances[msg.sender] = _gonBalances[msg.sender].sub(gonValue);
         _gonBalances[to] = _gonBalances[to].add(gonValue);
@@ -344,6 +335,8 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
         _allowedFragments[from][msg.sender] = _allowedFragments[from][msg.sender].sub(value);
 
         uint256 gonValue = value.mul(_gonsPerFragment);
+        require(_gonBalances[from] >= gonValue, "Insufficient balance");
+
         _gonBalances[from] = _gonBalances[from].sub(gonValue);
         _gonBalances[to] = _gonBalances[to].add(gonValue);
 

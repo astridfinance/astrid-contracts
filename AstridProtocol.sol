@@ -104,6 +104,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     event StakedTokenMappingSet(address stakedTokenAddress, bool whitelisted, address restakedTokenAddress, address eigenLayerStrategyAddress);
     event ProcessWithdrawalsOnWithdrawSet(bool value);
     event DelegatorAdded(address indexed delegator);
+    event DelegatorRemoved(address indexed delegator);
     event DelegatorRestaked(address indexed delegator, address stakedTokenAddress, uint256 amount, uint256 shares);
     event DelegatorWithdrawalQueued(address indexed delegator, address stakedTokenAddress, uint96 nonce);
     event DelegatorWithdrawalCompleted(address indexed delegator, uint96 withdrawalIndex);
@@ -136,6 +137,12 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     function setEigenLayerStrategyManagerAddress(
         address _eigenLayerStrategyManagerAddr
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        uint32 size;
+        assembly {
+            size := extcodesize(_eigenLayerStrategyManagerAddr)
+        }
+        require(size > 0, "AstridProtocol: Contract does not exist");
+
         emit EigenLayerStrategyManagerAddressSet(eigenLayerStrategyManagerAddress, _eigenLayerStrategyManagerAddr);
 
         eigenLayerStrategyManagerAddress = _eigenLayerStrategyManagerAddr;
@@ -177,13 +184,39 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     function _authorizeUpgrade(address newImplementation) internal onlyRole(UPGRADER_ROLE) override {
     }
 
+    function _delegatorExists(
+        address _delegatorAddress
+    ) internal view returns (bool) {
+        for (uint256 i; i < delegators.length; i++) {
+            if (_delegatorAddress == address(delegators[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function addDelegators(
         IDelegator[] calldata _delegatorContracts
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
         for (uint256 i; i < _delegatorContracts.length; i++) {
+            address delegatorAddress = address(_delegatorContracts[i]);
+            require(!_delegatorExists(delegatorAddress), "AstridProtocol: Duplicate delegator address");
+
             delegators.push(_delegatorContracts[i]);
-            emit DelegatorAdded(address(_delegatorContracts[i]));
+            emit DelegatorAdded(delegatorAddress);
         }
+    }
+
+    function removeDelegator(
+        uint16 _delegatorIndex
+    ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
+
+        address delegatorAddress = address(delegators[_delegatorIndex]);
+        delegators[_delegatorIndex] = delegators[delegators.length - 1];
+        delegators.pop();
+
+        emit DelegatorRemoved(delegatorAddress);
     }
 
     function delegatorsLength() public view returns (uint256) {
@@ -195,6 +228,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         address _stakedTokenAddress,
         uint256 _amount
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256) {
+        require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
         require(
             IERC20(_stakedTokenAddress).balanceOf(address(this)) >=
             totalClaimableWithdrawals[_stakedTokenAddress] + _amount,
@@ -221,6 +255,8 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         uint16 _delegatorIndex,
         address _stakedTokenAddress
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint96) {
+        require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
+
         uint96 nonce = delegators[_delegatorIndex].queueWithdrawal(
             _stakedTokenAddress,
             eigenLayerStrategyManagerAddress,
@@ -237,6 +273,8 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         uint96 _withdrawalIndex,
         uint256 _middlewareTimesIndex
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
+
         IDelegator delegator = delegators[_delegatorIndex];
         address _stakedTokenAddress = delegator.getStakedTokenAddressAtWithdrawalsIndex(_withdrawalIndex);
         delegator.completeQueuedWithdrawal(
@@ -253,6 +291,8 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         uint16 _delegatorIndex,
         address _token
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 balance) {
+        require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
+
         balance = delegators[_delegatorIndex].pull(_token);
         emit DelegatorPulled(address(delegators[_delegatorIndex]), _token, balance);
     }
@@ -336,10 +376,6 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     }
 
     function withdraw(address _restakedTokenAddress, uint256 amount) public nonReentrant whenNotPaused {
-        address _stakedTokenAddress = IRestakedETH(_restakedTokenAddress).stakedTokenAddress();
-        StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
-
-        require(stakedTokenMapping.whitelisted, "AstridProtocol: Staked token not whitelisted");
         require(IERC20(_restakedTokenAddress).balanceOf(msg.sender) >= amount, "AstridProtocol: Insufficient balance of restaked token");
         require(IERC20(_restakedTokenAddress).allowance(msg.sender, address(this)) >= amount, "AstridProtocol: Insufficient allowance of restaked token");
 
