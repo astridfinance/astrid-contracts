@@ -99,10 +99,12 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     mapping(address => WithdrawalRequest[]) public withdrawalRequestsByUser;
     mapping(address => uint256) public totalClaimableWithdrawals; // stakedTokenAddress => amount
     bool public processWithdrawalsOnWithdraw;
+    uint32 public maxDelegators;
 
     event EigenLayerStrategyManagerAddressSet(address oldAddress, address newAddress);
     event StakedTokenMappingSet(address stakedTokenAddress, bool whitelisted, address restakedTokenAddress, address eigenLayerStrategyAddress);
     event ProcessWithdrawalsOnWithdrawSet(bool value);
+    event MaxDelegatorsSet(uint32 oldValue, uint32 newValue);
     event DelegatorAdded(address indexed delegator);
     event DelegatorRemoved(address indexed delegator);
     event DelegatorRestaked(address indexed delegator, address stakedTokenAddress, uint256 amount, uint256 shares);
@@ -121,7 +123,10 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         _disableInitializers();
     }
 
-    function initialize(address _governanceAddr, address _eigenLayerStrategyManagerAddr) initializer public {
+    function initialize(address _governanceAddr, address _eigenLayerStrategyManagerAddr, uint32 _maxDelegators) initializer public {
+        require(_governanceAddr != address(0), "AstridProtocol: Governance cannot be zero address");
+        require(Utils.contractExists(_eigenLayerStrategyManagerAddr), "AstridProtocol: Contract does not exist");
+
         __Pausable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -132,16 +137,13 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         _grantRole(REBASER_ROLE, _governanceAddr);
 
         eigenLayerStrategyManagerAddress = _eigenLayerStrategyManagerAddr;
+        maxDelegators = _maxDelegators;
     }
 
     function setEigenLayerStrategyManagerAddress(
         address _eigenLayerStrategyManagerAddr
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
-        uint32 size;
-        assembly {
-            size := extcodesize(_eigenLayerStrategyManagerAddr)
-        }
-        require(size > 0, "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyManagerAddr), "AstridProtocol: Contract does not exist");
 
         emit EigenLayerStrategyManagerAddressSet(eigenLayerStrategyManagerAddress, _eigenLayerStrategyManagerAddr);
 
@@ -154,6 +156,10 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         address _restakedTokenAddr,
         address _eigenLayerStrategyAddr
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(Utils.contractExists(_stakedTokenAddr), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_restakedTokenAddr), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyAddr), "AstridProtocol: Contract does not exist");
+
         stakedTokens[_stakedTokenAddr] = StakedTokenMapping({
             whitelisted: _whitelisted,
             restakedTokenAddress: _restakedTokenAddr,
@@ -168,6 +174,16 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
         processWithdrawalsOnWithdraw = _value;
         emit ProcessWithdrawalsOnWithdrawSet(_value);
+    }
+
+    function setMaxDelegators(
+        uint32 _maxDelegators
+    ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_maxDelegators >= delegators.length, "AstridProtocol: _maxDelegators less than delegators.length");
+
+        emit MaxDelegatorsSet(maxDelegators, _maxDelegators);
+
+        maxDelegators = _maxDelegators;
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
@@ -198,8 +214,11 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     function addDelegators(
         IDelegator[] calldata _delegatorContracts
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(delegators.length + _delegatorContracts.length <= maxDelegators, "AstridProtocol: Max delegators length exceeded");
+
         for (uint256 i; i < _delegatorContracts.length; i++) {
             address delegatorAddress = address(_delegatorContracts[i]);
+            require(Utils.contractExists(delegatorAddress), "AstridProtocol: Contract does not exist");
             require(!_delegatorExists(delegatorAddress), "AstridProtocol: Duplicate delegator address");
 
             delegators.push(_delegatorContracts[i]);
@@ -229,6 +248,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         uint256 _amount
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256) {
         require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
         require(
             IERC20(_stakedTokenAddress).balanceOf(address(this)) >=
             totalClaimableWithdrawals[_stakedTokenAddress] + _amount,
@@ -256,6 +276,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         address _stakedTokenAddress
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint96) {
         require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
 
         uint96 nonce = delegators[_delegatorIndex].queueWithdrawal(
             _stakedTokenAddress,
@@ -292,12 +313,15 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         address _token
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 balance) {
         require(_delegatorIndex < delegators.length, "AstridProtocol: _delegatorIndex out of bounds");
+        require(Utils.contractExists(_token), "AstridProtocol: Contract does not exist");
 
         balance = delegators[_delegatorIndex].pull(_token);
         emit DelegatorPulled(address(delegators[_delegatorIndex]), _token, balance);
     }
 
     function rebaseInfo(address _stakedTokenAddress) public view returns (ReBaseInfo memory) {
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
+
         StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
 
         uint256 _stakedTokenBackedSupply;
@@ -318,6 +342,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     }
 
     function rebase(address _stakedTokenAddress) public whenNotPaused onlyRole(REBASER_ROLE) returns (uint256 _totalSupply) {
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
         ReBaseInfo memory info = rebaseInfo(_stakedTokenAddress);
         require(info.restakedTokenTotalSupply != info.stakedTokenBackedSupply, "AstridProtocol: restakedTokenTotalSupply = stakedTokenBackedSupply");
 
@@ -350,6 +375,8 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     }
 
     function deposit(address _stakedTokenAddress, uint256 amount) public nonReentrant whenNotPaused {
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
+        require(amount > 0, "AstridProtocol: Amount must be greater than 0");
         StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
 
         require(stakedTokenMapping.whitelisted, "AstridProtocol: Staked token not whitelisted");
@@ -376,6 +403,8 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     }
 
     function withdraw(address _restakedTokenAddress, uint256 amount) public nonReentrant whenNotPaused {
+        require(Utils.contractExists(_restakedTokenAddress), "AstridProtocol: Contract does not exist");
+        require(amount > 0, "AstridProtocol: Amount must be greater than 0");
         require(IERC20(_restakedTokenAddress).balanceOf(msg.sender) >= amount, "AstridProtocol: Insufficient balance of restaked token");
         require(IERC20(_restakedTokenAddress).allowance(msg.sender, address(this)) >= amount, "AstridProtocol: Insufficient allowance of restaked token");
 
@@ -414,7 +443,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         }
     }
 
-    function processWithdrawals() public nonReentrant whenNotPaused {
+    function processWithdrawals() public nonReentrant whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
         _processWithdrawals();
     }
 
@@ -451,6 +480,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     }
 
     function claim(uint256 withdrawerIndex) public nonReentrant whenNotPaused {
+        require(withdrawerIndex < withdrawalRequestsByUser[msg.sender].length, "AstridProtocol: withdrawerIndex out of bounds");
         WithdrawalRequest memory request = withdrawalRequestsByUser[msg.sender][withdrawerIndex];
 
         require(request.status == WithdrawalStatus.PROCESSED, "AstridProtocol: Withdrawal status mismatch");
@@ -484,6 +514,7 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
 
     // Supports completion of old withdrawals
     function completeQueuedWithdrawal(uint96 withdrawalIndex, uint256 middlewareTimesIndex) public nonReentrant whenNotPaused {
+        require(withdrawalIndex < withdrawals[msg.sender].length, "AstridProtocol: withdrawalIndex out of bounds");
         WithdrawalInfo memory withdrawalInfo = withdrawals[msg.sender][withdrawalIndex];
 
         require(withdrawalInfo.withdrawCompletedAt == 0, "AstridProtocol: Withdrawal already completed");

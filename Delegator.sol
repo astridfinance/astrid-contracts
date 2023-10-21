@@ -53,6 +53,9 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
     }
 
     function initialize(address _governanceAddr, address _astridProtocolAddr) initializer public {
+        require(_governanceAddr != address(0), "AstridProtocol: Governance cannot be zero address");
+        require(Utils.contractExists(_astridProtocolAddr), "AstridProtocol: Contract does not exist");
+
         __Pausable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -68,6 +71,8 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
     function setAstridProtocolAddress(
         address _astridProtocolAddr
     ) public whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(Utils.contractExists(_astridProtocolAddr), "AstridProtocol: Contract does not exist");
+
         emit AstridProtocolAddressSet(astridProtocolAddress, _astridProtocolAddr);
 
         _revokeRole(ASTRID_ROLE, astridProtocolAddress);
@@ -94,6 +99,10 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         address _eigenLayerStrategyManagerAddress,
         address _eigenLayerStrategyAddress
     ) public nonReentrant whenNotPaused onlyRole(ASTRID_ROLE) returns (uint256) {
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyManagerAddress), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyAddress), "AstridProtocol: Contract does not exist");
+
         uint256 amount = IERC20(_stakedTokenAddress).balanceOf(address(this));
 
         IERC20(_stakedTokenAddress).approve(_eigenLayerStrategyManagerAddress, amount);
@@ -113,10 +122,14 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         address _eigenLayerStrategyManagerAddress,
         address _eigenLayerStrategyAddress
     ) public nonReentrant whenNotPaused onlyRole(ASTRID_ROLE) returns (uint96) {
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyManagerAddress), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyAddress), "AstridProtocol: Contract does not exist");
+
         uint256 shares = IStrategy(_eigenLayerStrategyAddress).shares(address(this));
         uint256 amount = IStrategy(_eigenLayerStrategyAddress).userUnderlyingView(address(this));
 
-        uint256 strategyIndex;
+        uint256 strategyIndex = type(uint256).max;
         uint256 strategyListLength = IStrategyManager(_eigenLayerStrategyManagerAddress).stakerStrategyListLength(address(this));
         for (uint256 i; i < strategyListLength; i++) {
             if (IStrategyManager(_eigenLayerStrategyManagerAddress).stakerStrategyList(address(this), i) == _eigenLayerStrategyAddress) {
@@ -124,6 +137,7 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
                 break;
             }
         }
+        require(strategyIndex != type(uint256).max, "AstridProtocol: strategyIndex not found");
 
         uint256[] memory strategyIndexesArr = new uint256[](1);
         strategyIndexesArr[0] = strategyIndex;
@@ -165,6 +179,9 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         uint256 _middlewareTimesIndex,
         address _eigenLayerStrategyManagerAddress
     ) external view returns (bool) {
+        require(_withdrawalIndex < withdrawals.length, "AstridProtocol: _withdrawalIndex out of bounds");
+        require(Utils.contractExists(_eigenLayerStrategyManagerAddress), "AstridProtocol: Contract does not exist");
+
         WithdrawalInfo memory withdrawalInfo = withdrawals[_withdrawalIndex];
         uint32 withdrawalDelayBlocks = uint32(IStrategyManager(_eigenLayerStrategyManagerAddress).withdrawalDelayBlocks());
 
@@ -181,6 +198,10 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         address _eigenLayerStrategyManagerAddress,
         address _eigenLayerStrategyAddress
     ) public nonReentrant whenNotPaused onlyRole(ASTRID_ROLE) {
+        require(_withdrawalIndex < withdrawals.length, "AstridProtocol: _withdrawalIndex out of bounds");
+        require(Utils.contractExists(_eigenLayerStrategyManagerAddress), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyAddress), "AstridProtocol: Contract does not exist");
+
         WithdrawalInfo memory withdrawalInfo = withdrawals[_withdrawalIndex];
 
         require(withdrawalInfo.withdrawCompletedAt == 0, "AstridProtocol: Withdrawal already completed");
@@ -221,6 +242,8 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
     }
 
     function pull(address token) public nonReentrant whenNotPaused onlyRole(ASTRID_ROLE) returns (uint256 balance) {
+        require(Utils.contractExists(token), "AstridProtocol: Contract does not exist");
+
         balance = IERC20(token).balanceOf(address(this));
         bool sent = Utils.payDirect(msg.sender, balance, token);
         require(sent, "AstridProtocol: Failed to send token");
@@ -230,6 +253,8 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
     function getAssetBalances(
         address _eigenLayerStrategyManagerAddress
     ) external view returns (address[] memory, uint256[] memory) {
+        require(Utils.contractExists(_eigenLayerStrategyManagerAddress), "AstridProtocol: Contract does not exist");
+
         (IStrategy[] memory strategies, ) = IStrategyManager(
             _eigenLayerStrategyManagerAddress
         ).getDeposits(address(this));
@@ -252,6 +277,9 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
         address _token,
         address _eigenLayerStrategyAddress
     ) external view returns (uint256) {
+        require(Utils.contractExists(_token), "AstridProtocol: Contract does not exist");
+        require(Utils.contractExists(_eigenLayerStrategyAddress), "AstridProtocol: Contract does not exist");
+
         return _getAssetBalance(_token, _eigenLayerStrategyAddress);
     }
 
@@ -280,6 +308,7 @@ contract Delegator is IDelegator, Initializable, UUPSUpgradeable, PausableUpgrad
     function getStakedTokenAddressAtWithdrawalsIndex(
         uint256 _index
     ) external view returns (address) {
+        require(_index < withdrawals.length, "AstridProtocol: Withdrawals index out of bounds");
         return withdrawals[_index].stakedTokenAddress;
     }
 

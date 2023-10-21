@@ -25,4 +25,12 @@ library Utils {
         IERC20(token).safeTransfer(to, amount);
         return true;
     }
+
+    function contractExists(address contractAddress) internal view returns (bool) {
+        uint32 size;
+        assembly {
+            size := extcodesize(contractAddress)
+        }
+        return size > 0;
+    }
 }

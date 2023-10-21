@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./interfaces/IRestakedETH.sol";
+import "./helpers/Utils.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable {
@@ -15,8 +16,8 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
     event RebasePerformed(uint256 indexed epoch, uint256 totalSupply);
 
     modifier validRecipient(address to) {
-        require(to != address(0x0));
-        require(to != address(this));
+        require(to != address(0x0), "Recipient cannot be zero address");
+        require(to != address(this), "Recipient cannot be self");
         _;
     }
 
@@ -27,8 +28,9 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
 
     uint256 private constant MAX_UINT256 = type(uint256).max;
 
-    // MAX_SUPPLY = maximum integer < (sqrt(4*TOTAL_GONS + 1) - 1) / 2
+    /* LEGACY STORAGE */
     uint256 private constant MAX_SUPPLY = type(uint128).max; // (2^128) - 1
+    /* END LEGACY STORAGE */
 
     string private _name;
     string private _symbol;
@@ -61,12 +63,18 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
 
     mapping(uint256 => bool) public rebaseByDate;
 
+    uint256 private constant MAXIMUM_SUPPLY = 10**27;
+    uint256 private constant INITIAL_GONS_PER_FRAGMENT = 10**50;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
     function initialize(address _governanceAddress, address _stakedTokenAddress, string memory _stakedTokenSymbol) initializer public {
+        require(_governanceAddress != address(0), "AstridProtocol: Governance cannot be zero address");
+        require(Utils.contractExists(_stakedTokenAddress), "AstridProtocol: Contract does not exist");
+
         __Pausable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -82,7 +90,7 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
 
         _totalSupply = 0;
         _totalGons = 0;
-        _gonsPerFragment = 10**50;
+        _gonsPerFragment = INITIAL_GONS_PER_FRAGMENT;
     }
 
     function mint(address to, uint256 amount) external override onlyRole(MINTER_ROLE) whenNotPaused validRecipient(to) {
@@ -156,11 +164,15 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
             _totalSupply = _totalSupply.sub(supplyDelta);
         }
 
-        if (_totalSupply > MAX_SUPPLY) {
-            _totalSupply = MAX_SUPPLY;
+        if (_totalSupply > MAXIMUM_SUPPLY) {
+            _totalSupply = MAXIMUM_SUPPLY;
         }
 
-        _gonsPerFragment = _totalGons.div(_totalSupply);
+        if (_totalGons == 0) {
+            _gonsPerFragment = INITIAL_GONS_PER_FRAGMENT;
+        } else {
+            _gonsPerFragment = _totalGons.div(_totalSupply);
+        }
 
         // From this point forward, _gonsPerFragment is taken as the source of truth.
         // We recalculate a new _totalSupply to be in agreement with the _gonsPerFragment
@@ -429,13 +441,13 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
      * @param r Signature param
      */
     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) public {
-        require(block.timestamp <= deadline);
+        require(block.timestamp <= deadline, "Exceeded deadline");
 
         uint256 ownerNonce = _nonces[owner];
         bytes32 permitDataDigest = keccak256(abi.encode(PERMIT_TYPEHASH, owner, spender, value, ownerNonce, deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), permitDataDigest));
 
-        require(owner == ecrecover(digest, v, r, s));
+        require(owner == ecrecover(digest, v, r, s), "Invalid signature");
 
         _nonces[owner] = ownerNonce.add(1);
 
