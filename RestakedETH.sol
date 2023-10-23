@@ -95,6 +95,7 @@ contract RestakedETH is IRestakedETH, Initializable, PausableUpgradeable, Access
 
     function mint(address to, uint256 amount) external override onlyRole(MINTER_ROLE) whenNotPaused validRecipient(to) {
         require(amount > 0, "Amount must be greater than 0");
+        require(_totalSupply + amount <= MAXIMUM_SUPPLY, "Maximum supply exceeded");
 
         uint256 gonValue = amount.mul(_gonsPerFragment);
 
