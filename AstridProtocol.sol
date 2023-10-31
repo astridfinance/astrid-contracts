@@ -405,6 +405,12 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
     function withdraw(address _restakedTokenAddress, uint256 amount) public nonReentrant whenNotPaused {
         require(Utils.contractExists(_restakedTokenAddress), "AstridProtocol: Contract does not exist");
         require(amount > 0, "AstridProtocol: Amount must be greater than 0");
+
+        address _stakedTokenAddress = IRestakedETH(_restakedTokenAddress).stakedTokenAddress();
+        StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
+        require(stakedTokenMapping.whitelisted, "AstridProtocol: Staked token not whitelisted");
+        require(stakedTokenMapping.restakedTokenAddress == _restakedTokenAddress, "AstridProtocol: Invalid restakedTokenAddress");
+
         require(IERC20(_restakedTokenAddress).balanceOf(msg.sender) >= amount, "AstridProtocol: Insufficient balance of restaked token");
         require(IERC20(_restakedTokenAddress).allowance(msg.sender, address(this)) >= amount, "AstridProtocol: Insufficient allowance of restaked token");
 
@@ -455,6 +461,9 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
 
             address _restakedTokenAddress = request.restakedTokenAddress;
             address _stakedTokenAddress = IRestakedETH(_restakedTokenAddress).stakedTokenAddress();
+            StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
+            require(stakedTokenMapping.restakedTokenAddress == _restakedTokenAddress, "AstridProtocol: Invalid restakedTokenAddress");
+
             uint256 requestedAmount = IRestakedETH(_restakedTokenAddress).scaledBalanceToBalance(request.requestedRestakedTokenShares);
             if (requestedAmount > IERC20(_stakedTokenAddress).balanceOf(address(this)) - totalClaimableWithdrawals[_stakedTokenAddress]) {
                 break;
@@ -486,7 +495,10 @@ contract AstridProtocol is Initializable, UUPSUpgradeable, PausableUpgradeable, 
         require(request.status == WithdrawalStatus.PROCESSED, "AstridProtocol: Withdrawal status mismatch");
         require(request.withdrawer == msg.sender, "AstridProtocol: Invalid withdrawer");
 
-        address _stakedTokenAddress = IRestakedETH(request.restakedTokenAddress).stakedTokenAddress();
+        address _restakedTokenAddress = request.restakedTokenAddress;
+        address _stakedTokenAddress = IRestakedETH(_restakedTokenAddress).stakedTokenAddress();
+        StakedTokenMapping memory stakedTokenMapping = stakedTokens[_stakedTokenAddress];
+        require(stakedTokenMapping.restakedTokenAddress == _restakedTokenAddress, "AstridProtocol: Invalid restakedTokenAddress");
 
         withdrawalRequests[request.withdrawalRequestsIndex].status = WithdrawalStatus.CLAIMED;
         withdrawalRequests[request.withdrawalRequestsIndex].withdrawClaimedAt = block.timestamp;
